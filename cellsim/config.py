@@ -122,7 +122,7 @@ class Config:
 
   def __init__(self, file_path):
     self._file_path = file_path
-    self.dataset = ConfigSectionDataset()
+    self.dataset_settings = ConfigSectionDataset()
     self.dataset_info = ConfigSectionDatasetMovielens()
     self.dataset_variants = dict()
     self.default: ConfigSectionSimDefault = ConfigSectionSimDefault()
@@ -137,9 +137,13 @@ class Config:
       self.recsys,
       self.env,
       self.rl,
-      self.dataset,
+      self.dataset_settings,
       self.dataset_info,
     ]
+
+  @property
+  def dataset(self) -> ConfigSectionDatasetMovielensVariant:
+    return self.dataset_variants[self.default.dataset]
 
   def save(self):
     for namespace in self._namespaces:
