@@ -86,3 +86,18 @@ if __name__ == '__main__':
       header=None if config.dataset.use_colnames_as_headers=='true' else 0,
       low_memory=True
     )
+
+  for colname in [config.dataset.colname_uid, config.dataset.colname_iid]:
+    df_t = df[[colname]].drop_duplicates().sort_values(by=colname)
+    df_t['temp'] = df_t[colname].argsort()
+    df = df.merge(df_t, how='left').drop([colname], axis=1).rename(columns={'temp':colname})
+
+  df = df[[
+    config.dataset.colname_uid,
+    config.dataset.colname_iid,
+    config.dataset.colname_inter,
+    config.dataset.colname_ts,
+  ]]
+
+  os.makedirs('./data', exist_ok=True)
+  df.to_csv('./data/requests.csv', encoding='utf8', sep=';')
