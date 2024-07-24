@@ -16,11 +16,12 @@ def new_session():
   sess.headers.update(request_header_default)
   return sess
 
-def stream_to_io(resp: Response, _io: RawIOBase, chunk_size=65536, stream_info_handler=new_tqdm_info_handler):
+def stream_to_io(resp: Response, _io: RawIOBase, chunk_size=65536, stream_info_handler=new_tqdm_info_handler, callback=lambda x: None):
   content_length = response_parser.get_content_length(resp)
   handler = stream_info_handler(total=content_length)
   for chunk in resp.iter_content(chunk_size=chunk_size, decode_unicode=False):
     _io.write(chunk)
+    callback(chunk)
     handler.update(len(chunk))
   handler.refresh()
 
@@ -54,7 +55,7 @@ class request:
 class downloader:
 
   @staticmethod
-  def to_folder(sess, url, folder, stream_chunk_size=65536, stream_info_handler=new_tqdm_info_handler) -> str:
+  def to_folder(sess, url, folder, stream_chunk_size=65536, stream_info_handler=new_tqdm_info_handler, callback=lambda x: None) -> str:
     resp = request.get(sess, url, allow_redirects=True, stream=True)
     filename = response_parser.get_filename(resp)
     filepath = os.path.join(folder, filename)
@@ -62,11 +63,11 @@ class downloader:
       if not fp.writable():
         resp.close()
         raise OSError('unable to write to {}'.format(filepath))
-      stream_to_io(resp, fp, chunk_size=stream_chunk_size, stream_info_handler=stream_info_handler)
+      stream_to_io(resp, fp, chunk_size=stream_chunk_size, stream_info_handler=stream_info_handler, callback=callback)
     return filepath
 
   @staticmethod
-  def to_io(sess, url, _io, stream_chunk_size=65536, stream_info_handler=new_tqdm_info_handler) -> Response:
+  def to_io(sess, url, _io, stream_chunk_size=65536, stream_info_handler=new_tqdm_info_handler, callback=lambda x: None) -> Response:
     resp = request.get(sess, url, allow_redirects=True, stream=True)
-    stream_to_io(resp, _io, chunk_size=stream_chunk_size, stream_info_handler=stream_info_handler)
+    stream_to_io(resp, _io, chunk_size=stream_chunk_size, stream_info_handler=stream_info_handler, callback=callback)
     return resp

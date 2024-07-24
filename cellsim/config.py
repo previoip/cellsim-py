@@ -1,11 +1,16 @@
 import os
 import configparser
+from collections import namedtuple
+from re import compile as re_compile
 from dataclasses import dataclass, asdict, fields
+
+regxp_hashinfo = re_compile(r'(?P<alg>\w+)\s*\((?P<f>.+)\)\s*\=\s*(?P<hash>\w+)\Z')
 
 @dataclass
 class ConfigSectionDataset:
   download_dir: str = './downloads'
   extract_dir: str = './data'
+  data_dir: str = './data'
   variants: str = 'movielens'
 
   @property
@@ -49,6 +54,12 @@ class ConfigSectionDatasetMovielensVariant:
   def _section_name(self):
     return 'dataset.movielens.' + self.archive_name.split('.')[0]
 
+  @property
+  def hashinfo(self):
+    t = namedtuple('HashInfo', ['alg', 'file', 'hash'])
+    h = [t(*regxp_hashinfo.match(s).groups()) for s in self.archive_hash.splitlines() if regxp_hashinfo.match(s)]
+    r = {i.file: i for i in h}
+    return r
 
 @dataclass
 class ConfigSectionSimDefault:

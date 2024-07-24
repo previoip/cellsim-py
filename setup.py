@@ -2,6 +2,7 @@ import sys
 import os
 import urllib.parse
 import pandas as pd
+import hashlib
 from zipfile import ZipFile
 from tarfile import TarFile
 from cellsim.config import Config
@@ -53,9 +54,13 @@ if __name__ == '__main__':
   os.makedirs(extract_folder, exist_ok=True)
 
   if not os.path.exists(archive_filepath) or not os.path.isfile(archive_filepath):
+    hash_h = hashlib.md5()
     sess = new_session()
-    downloader.to_folder(sess, dataset_url, download_folder)
+    downloader.to_folder(sess, dataset_url, download_folder, callback=hash_h.update)
     sess.close()
+    if not hash_h.hexdigest() == config.dataset.hashinfo[config.dataset.archive_name].hash:
+      raise ValueError('download error: file hash invalid')
+
 
   if not os.path.exists(extract_filepath) or not os.path.isfile(extract_filepath):
     if archive_filepath.endswith('.zip'):
@@ -77,7 +82,7 @@ if __name__ == '__main__':
 
   delimiter = '\t' if config.dataset.delimiter == '\\t' else config.dataset.delimiter
   colnames = [getattr(config.dataset, 'colname_'+i) for i in config.dataset.colsequence.split('|')]
-  
+
   with open(extract_filepath) as fp:
     df = pd.read_csv(
       fp,
@@ -87,17 +92,24 @@ if __name__ == '__main__':
       low_memory=True
     )
 
-  for colname in [config.dataset.colname_uid, config.dataset.colname_iid]:
+  df = df.rename(columns={
+    config.dataset.colname_uid: 'uid',
+    config.dataset.colname_iid: 'iid',
+    config.dataset.colname_inter: 'val',
+    config.dataset.colname_ts: 'ts',
+  })
+
+  for colname in ['uid', 'iid']:
     df_t = df[[colname]].drop_duplicates().sort_values(by=colname)
     df_t['temp'] = df_t[colname].argsort()
     df = df.merge(df_t, how='left').drop([colname], axis=1).rename(columns={'temp':colname})
 
-  df = df[[
-    config.dataset.colname_uid,
-    config.dataset.colname_iid,
-    config.dataset.colname_inter,
-    config.dataset.colname_ts,
-  ]]
+  df = df.sort_values(by='ts').reset_index(drop=True)
+  df = df[['uid','iid','val','ts']]
 
-  os.makedirs('./data', exist_ok=True)
-  df.to_csv('./data/requests.csv', encoding='utf8', sep=';')
+  os.makedirs(config.dataset_settings.data_dir, exist_ok=True)
+  df.to_csv(os.path.join(config.dataset_settings.data_dir, 'requests.csv'), encoding='utf8', sep=';', index=False)
+
+  df_uid = df[['uid']].drop_duplicates().sort_values(by='uid')
+  df_uid['inter'] = df_uid['uid'].apply(lambda i: df[df['uid'] == i]['iid'].to_list())
+  df_uid.to_csv(os.path.join(config.dataset_settings.data_dir, 'inter.csv'), encoding='utf8', sep=';', index=False)
