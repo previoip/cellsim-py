@@ -11,6 +11,8 @@ class ConfigSectionDataset:
   download_dir: str = './downloads'
   extract_dir: str = './data'
   data_dir: str = './data'
+  data_csv_requests: str = 'requests.csv'
+  data_csv_inter: str = 'inter.csv'
   variants: str = 'movielens'
 
   @property
@@ -75,7 +77,8 @@ class ConfigSectionSimDefault:
 @dataclass
 class ConfigSectionSimCache:
   type: str = 'fifo'
-  maxsize: int = 1000
+  maxsize: float = 1000
+  maxage: float = 1000
 
   @property
   def _section_name(self):
@@ -95,6 +98,7 @@ class ConfigSectionSimRecsys:
 class ConfigSectionSimEnv:
   bs_nx: int = 4
   bs_ny: int = 6
+  bs_topo: str = 'hex'
   num_clusters: int = 5
   min_dist: float = 0.01
   max_dist: float = 0.3
@@ -114,12 +118,12 @@ class ConfigSectionSimEnv:
 
 @dataclass
 class ConfigSectionSimRl:
-  batch_size: float = 64
+  batch_size: int = 64
   gamma: float = 0.99
   eps_start: float = 0.9
   eps_end: float = 0.05
   eps_decay: float = 1000
-  n_episode: float = 3
+  n_episode: int = 3
   tau: float = 0.005
   lr: float = 1e-4
   replay_buf_size: int = 1000
@@ -176,6 +180,8 @@ class Config:
 
     for namespace in self._namespaces:
       for field in fields(namespace):
+        if not field.name in self._parser[namespace._section_name]:
+          continue
         setattr(namespace, field.name, field.type(self._parser[namespace._section_name][field.name]))
 
     for dataset_name in self.dataset_info.variants_list:
@@ -184,5 +190,8 @@ class Config:
       if not dataset_section in self._parser:
         continue
       for field in fields(namespace):
+        if not field.name in self._parser[namespace._section_name]:
+          continue
         setattr(namespace, field.name, field.type(self._parser[dataset_section][field.name]))
       self.dataset_variants[dataset_name] = namespace
+

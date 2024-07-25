@@ -108,8 +108,11 @@ if __name__ == '__main__':
   df = df[['uid','iid','val','ts']]
 
   os.makedirs(config.dataset_settings.data_dir, exist_ok=True)
-  df.to_csv(os.path.join(config.dataset_settings.data_dir, 'requests.csv'), encoding='utf8', sep=';', index=False)
+  df.to_csv(os.path.join(config.dataset_settings.data_dir, config.dataset_settings.data_csv_requests), encoding='utf8', sep=';', index=False)
 
   df_uid = df[['uid']].drop_duplicates().sort_values(by='uid')
   df_uid['inter'] = df_uid['uid'].apply(lambda i: df[df['uid'] == i]['iid'].to_list())
-  df_uid.to_csv(os.path.join(config.dataset_settings.data_dir, 'inter.csv'), encoding='utf8', sep=';', index=False)
+  df_uid.to_csv(os.path.join(config.dataset_settings.data_dir, config.dataset_settings.data_csv_inter), encoding='utf8', sep=';', index=False)
+
+  config.save()
+
