@@ -101,17 +101,18 @@ class ConfigSectionSimEnv:
   bs_ny: int = 6
   bs_topo: str = 'hex'
   num_clusters: int = 5
-  min_dist: float = 0.01
-  max_dist: float = 0.3
+  dist_min: float = 0.01
+  dist_max: float = 0.3
   cell_radius: float = 0.3
   a: float = 3.5
   sigma2: float = 104.0
   shad_loss: float = 10
-  min_power: float = -10
-  max_power: float = 20
-  power_set_levels: int = 10
+  rayleigh_scale: float = 1.0
+  power_min: float = -10
+  power_max: float = 20
+  power_level: int = 10
   content_size: float = 10e6
-  ue_bandwidth: float = 10e6
+  bandwidth: float = 10e6
 
   @property
   def _section_name(self):

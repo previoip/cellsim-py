@@ -45,15 +45,7 @@ if __name__ == '__main__':
   uids = df_request['uid'].drop_duplicates().sort_values()
   iids = df_request['iid'].drop_duplicates().sort_values()
 
-  env = CellNetEnviron(
-    config.env.bs_topo,
-    len(uids),
-    config.env.bs_nx,
-    config.env.bs_ny,
-    config.env.cell_radius,
-    config.cache.maxsize,
-    config.cache.maxage
-  )
+  env = CellNetEnviron(len(uids), config)
   env.update()
 
   fig, ax = plt.subplots()
@@ -61,4 +53,3 @@ if __name__ == '__main__':
   fig.savefig('{}/{}_env.png'.format(config.default.results_dir, fmt(config)))
 
   config.save()
-
