@@ -4,7 +4,7 @@ import random
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from cellsim.config import Config
+from cellsim.config import Config, fmt
 from cellsim.environ import CellNetEnviron
 import torch
 import torch.nn as nn
@@ -38,6 +38,7 @@ if __name__ == '__main__':
   config = Config(config_filepath)
   config.load()
 
+  os.makedirs(config.default.results_dir, exist_ok=True)
   init_seed(config.default.seed)
 
   df_request = pd.read_csv(os.path.join(config.dataset_settings.data_dir, config.dataset_settings.data_csv_requests), sep=';', low_memory=True)
@@ -57,7 +58,7 @@ if __name__ == '__main__':
 
   fig, ax = plt.subplots()
   env.plot_ax(ax)
-  fig.savefig('./env.png')
+  fig.savefig('{}/{}_env.png'.format(config.default.results_dir, fmt(config)))
 
   config.save()
 

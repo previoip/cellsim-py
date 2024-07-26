@@ -68,6 +68,7 @@ class ConfigSectionSimDefault:
   request_per_step: int = 200
   seed: int = 2024
   dataset: str = 'ml-100k'
+  results_dir: str = './results'
 
   @property
   def _section_name(self):
@@ -195,3 +196,14 @@ class Config:
         setattr(namespace, field.name, field.type(self._parser[dataset_section][field.name]))
       self.dataset_variants[dataset_name] = namespace
 
+
+def fmt(config: Config):
+  return '{}_{}_{}{}x{}_{}{}'.format(
+    config.default.dataset,
+    config.recsys.type,
+    config.env.bs_topo,
+    config.env.bs_nx,
+    config.env.bs_ny,
+    config.cache.type,
+    config.cache.maxsize
+  )
