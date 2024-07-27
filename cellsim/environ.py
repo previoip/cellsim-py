@@ -40,36 +40,36 @@ class CellNetEnviron:
     self.timer = TimestepTimer()
     self.bss_h = np.random.rayleigh(self.rayleigh_scale, size=(self.N))
 
-    # cartesian vectors
+    # vectors
     #   *_pos: coord
     #   *_hea: heading
     #   *_vel: velocity
-    self.ues_pos = np.zeros((self.n_ue, 3))
-    self.ues_hea = np.zeros((self.n_ue, 2))
-    self.ues_vel = np.zeros((self.n_ue, 3))
-    self.bss_pos = np.zeros((self.N, 3))
-    self.bss_hea = np.zeros((self.N, 2))
-    self.bss_vel = np.zeros((self.N, 3))
+    self.v_ues_pos = np.zeros((self.n_ue, 3))
+    self.v_ues_hea = np.zeros((self.n_ue, 2))
+    self.v_ues_vel = np.zeros((self.n_ue, 3))
+    self.v_bss_pos = np.zeros((self.N, 3))
+    self.v_bss_hea = np.zeros((self.N, 2))
+    self.v_bss_vel = np.zeros((self.N, 3))
 
-    # prealloc arrays
-    #   *_dl: delta vec
-    #   *_l : sqrt(square(*_dl))
+    # prealloc arrays/matrix
+    #   *_d*: delta *
+    #   *_dist : sqrt(square(*_dl))
     #   *_gr: group
     #   *_grm: group mask
-    self.bss_bss_dl = np.zeros((self.N, self.N, 3))
-    self.ues_ues_dl = np.zeros((self.n_ue, self.n_ue, 3))
-    self.ues_bss_dl = np.zeros((self.n_ue, self.N, 3))
-    self.bss_bss_l = np.zeros((self.N, self.N))
-    self.ues_ues_l = np.zeros((self.n_ue, self.n_ue))
-    self.ues_bss_l = np.zeros((self.n_ue, self.N))
-    self.ues_gr = np.zeros((self.n_ue), dtype=np.int64)
-    self.bss_ues_grm = np.zeros((self.N, self.n_ue))
+    self.m_bss2bss_dpos = np.zeros((self.N, self.N, 3))
+    self.m_ues2ues_dpos = np.zeros((self.n_ue, self.n_ue, 3))
+    self.m_ues2bss_dpos = np.zeros((self.n_ue, self.N, 3))
+    self.m_bss2bss_dist = np.zeros((self.N, self.N))
+    self.m_ues2ues_dist = np.zeros((self.n_ue, self.n_ue))
+    self.m_ues2bss_dist = np.zeros((self.n_ue, self.N))
+    self.a_ues_gr = np.zeros((self.n_ue), dtype=np.int64)
+    self.m_bss2ues_grm = np.zeros((self.N, self.n_ue))
 
-    # intrinsics
-    self.ues_power_index = np.zeros((self.n_ue), dtype=np.int64)
-    self.ues_power = np.zeros((self.n_ue))
-    self.ues_gain = np.zeros((self.n_ue, self.N))
-    self.ues_bss_path_loss = np.zeros((self.n_ue, self.N))
+    # sim intrinsics
+    self.a_ues_power_index = np.zeros((self.n_ue), dtype=np.int64)
+    self.a_ues_power = np.zeros((self.n_ue))
+    self.a_ues_gain = np.zeros((self.n_ue, self.N))
+    self.a_ues2bss_path_loss = np.zeros((self.n_ue, self.N))
 
     self.ues_i = np.arange(self.n_ue)
     self.bss_i = np.arange(self.N)
@@ -85,14 +85,14 @@ class CellNetEnviron:
     else:
       ValueError('invalid value:', config.env.bs_topo)
 
-    self.bss_pos[:, :] = topo_gen(self.bs_nx, self.bs_ny)
-    self.bss_pos[:, 0] *= self.L * (self.bs_nx - 1) * 2
-    self.bss_pos[:, 1] *= self.L * (self.bs_ny - 1) * 2
+    self.v_bss_pos[:, :] = topo_gen(self.bs_nx, self.bs_ny)
+    self.v_bss_pos[:, 0] *= self.L * (self.bs_nx - 1) * 2
+    self.v_bss_pos[:, 1] *= self.L * (self.bs_ny - 1) * 2
 
-    self.ues_pos[:, :2] = np.random.uniform(-.5, .5, size=(self.n_ue, 2))
-    self.ues_pos[:, :2] += np.random.uniform(-.05, .05, size=(self.n_ue, 2))
-    self.ues_pos[:, 0] *= self.L * (self.bs_nx) * 2
-    self.ues_pos[:, 1] *= self.L * (self.bs_ny) * 2 * ymul
+    self.v_ues_pos[:, :2] = np.random.uniform(-.5, .5, size=(self.n_ue, 2))
+    self.v_ues_pos[:, :2] += np.random.uniform(-.05, .05, size=(self.n_ue, 2))
+    self.v_ues_pos[:, 0] *= self.L * (self.bs_nx) * 2
+    self.v_ues_pos[:, 1] *= self.L * (self.bs_ny) * 2 * ymul
 
     self.update()
 
@@ -109,30 +109,30 @@ class CellNetEnviron:
 
 
   def update_dist(self):
-    self.bss_bss_dl *= 0
-    self.ues_ues_dl *= 0
-    self.ues_bss_dl *= 0
-    self.bss_bss_dl += self.bss_pos
-    self.ues_ues_dl += self.ues_pos
-    self.ues_bss_dl += self.bss_pos
-    self.bss_bss_dl -= np.expand_dims(self.bss_pos, axis=1)
-    self.ues_ues_dl -= np.expand_dims(self.ues_pos, axis=1)
-    self.ues_bss_dl -= np.expand_dims(self.ues_pos, axis=1)
-    np.sqrt(np.sum(np.square(self.bss_bss_dl), axis=2), out=self.bss_bss_l)
-    np.sqrt(np.sum(np.square(self.ues_ues_dl), axis=2), out=self.ues_ues_l)
-    np.sqrt(np.sum(np.square(self.ues_bss_dl), axis=2), out=self.ues_bss_l)
-    self.ues_bss_l.argmin(axis=1, out=self.ues_gr)
-    np.equal(np.repeat(np.expand_dims(self.ues_gr, axis=0), self.bss_i.shape[0], axis=0), np.expand_dims(self.bss_i, axis=1), out=self.bss_ues_grm)
+    self.m_bss2bss_dpos *= 0
+    self.m_ues2ues_dpos *= 0
+    self.m_ues2bss_dpos *= 0
+    self.m_bss2bss_dpos += self.v_bss_pos
+    self.m_ues2ues_dpos += self.v_ues_pos
+    self.m_ues2bss_dpos += self.v_bss_pos
+    self.m_bss2bss_dpos -= np.expand_dims(self.v_bss_pos, axis=1)
+    self.m_ues2ues_dpos -= np.expand_dims(self.v_ues_pos, axis=1)
+    self.m_ues2bss_dpos -= np.expand_dims(self.v_ues_pos, axis=1)
+    np.sqrt(np.sum(np.square(self.m_bss2bss_dpos), axis=2), out=self.m_bss2bss_dist)
+    np.sqrt(np.sum(np.square(self.m_ues2ues_dpos), axis=2), out=self.m_ues2ues_dist)
+    np.sqrt(np.sum(np.square(self.m_ues2bss_dpos), axis=2), out=self.m_ues2bss_dist)
+    self.m_ues2bss_dist.argmin(axis=1, out=self.a_ues_gr)
+    np.equal(np.repeat(np.expand_dims(self.a_ues_gr, axis=0), self.bss_i.shape[0], axis=0), np.expand_dims(self.bss_i, axis=1), out=self.m_bss2ues_grm)
 
   def update_pos(self):
     dt = self.timer.delta_time()
-    self.bss_pos += self.bss_vel * dt
-    self.ues_pos += self.ues_vel * dt
+    self.v_bss_pos += self.v_bss_vel * dt
+    self.v_ues_pos += self.v_ues_vel * dt
 
   def update_env_states(self):
-    self.ues_power = self.power_set[self.ues_power_index]
-    self.ues_bss_path_loss = self.a * 10 * np.log10(self.ues_bss_l)
-    # self.ues_gain
+    self.a_ues_power = self.power_set[self.a_ues_power_index]
+    self.a_ues2bss_path_loss = self.a * 10 * np.log10(self.m_ues2bss_dist)
+    # self.a_ues_gain
 
   def update(self):
     self.update_pos()
@@ -141,23 +141,23 @@ class CellNetEnviron:
 
   @property
   def ues_power_lin(self):
-    return 10**(self.ues_power/10)
+    return 10**(self.a_ues_power/10)
 
   # @property
   # def ues_gain(self):
-  #   return self.bss_h[self.ues_gr] / self.ues_power
+  #   return self.bss_h[self.a_ues_gr] / self.a_ues_power
 
   def plot_ax(self, ax: plt.Axes):
-    for bs_pos in self.bss_pos[:, :2]:
+    for bs_pos in self.v_bss_pos[:, :2]:
       patch = plt.Circle(bs_pos, self.L, facecolor='#00000000', edgecolor='#232323', clip_on=False, linestyle='--')
       ax.add_patch(patch)
     for i_bs in range(self.N):
-      ues_pos_gr = self.ues_pos[self.ues_gr==i_bs]
-      ues_bss_l_gr = self.ues_bss_l[:, i_bs][self.ues_gr==i_bs]
-      ues_bss_l_gr = np.clip(ues_bss_l_gr, 0.05, ues_bss_l_gr.max())
-      ues_bss_l_gr = 1 / ues_bss_l_gr * (ues_bss_l_gr.max() - ues_bss_l_gr.min()) * 10
-      ax.scatter(ues_pos_gr[:, 0], ues_pos_gr[:, 1], marker='x', s=ues_bss_l_gr)
-    ax.scatter(self.bss_pos[:, 0], self.bss_pos[:, 1], marker='v', c='#ff0000')
+      v_pos_a_ues_gr = self.v_ues_pos[self.a_ues_gr==i_bs]
+      m_dist_ues2bss_gr = self.m_ues2bss_dist[:, i_bs][self.a_ues_gr==i_bs]
+      m_dist_ues2bss_gr = np.clip(m_dist_ues2bss_gr, 0.05, m_dist_ues2bss_gr.max())
+      m_dist_ues2bss_gr = 1 / m_dist_ues2bss_gr * (m_dist_ues2bss_gr.max() - m_dist_ues2bss_gr.min()) * 10
+      ax.scatter(v_pos_a_ues_gr[:, 0], v_pos_a_ues_gr[:, 1], marker='x', s=m_dist_ues2bss_gr)
+    ax.scatter(self.v_bss_pos[:, 0], self.v_bss_pos[:, 1], marker='v', c='#ff0000')
     xliml, xlimu = ax.get_xlim()
     yliml, ylimu = ax.get_ylim()
     ax.set_xlim(min(xliml, yliml), max(xlimu, ylimu))
