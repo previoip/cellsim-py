@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from cellsim.core.timer import TimestepTimer
-from cellsim.cache import FIFOCache
+from cellsim.cache import FIFOCache, LIFOCache
 from cellsim.config import Config
 
 SIN60 = np.sin(np.deg2rad(60))
@@ -39,14 +39,23 @@ class CellNetEnviron:
     self.power_set = np.linspace(config.env.power_min, config.env.power_max, config.env.power_level)
     self.timer = TimestepTimer()
     self.bss_h = np.random.rayleigh(self.rayleigh_scale, size=(self.N))
-    self.bss_caches = [FIFOCache(self.timer, config.cache.maxsize, config.cache.maxage) for _ in range(self.N)]
 
+    # cartesian vectors
+    #   *_pos: coord
+    #   *_hea: heading
+    #   *_vel: velocity
     self.ues_pos = np.zeros((self.n_ue, 3))
     self.ues_hea = np.zeros((self.n_ue, 2))
     self.ues_vel = np.zeros((self.n_ue, 3))
     self.bss_pos = np.zeros((self.N, 3))
     self.bss_hea = np.zeros((self.N, 2))
     self.bss_vel = np.zeros((self.N, 3))
+
+    # prealloc arrays
+    #   *_dl: delta vec
+    #   *_l : sqrt(square(*_dl))
+    #   *_gr: group
+    #   *_grm: group mask
     self.bss_bss_dl = np.zeros((self.N, self.N, 3))
     self.ues_ues_dl = np.zeros((self.n_ue, self.n_ue, 3))
     self.ues_bss_dl = np.zeros((self.n_ue, self.N, 3))
@@ -54,13 +63,20 @@ class CellNetEnviron:
     self.ues_ues_l = np.zeros((self.n_ue, self.n_ue))
     self.ues_bss_l = np.zeros((self.n_ue, self.N))
     self.ues_gr = np.zeros((self.n_ue), dtype=np.int64)
+    self.bss_ues_grm = np.zeros((self.N, self.n_ue))
 
+    # intrinsics
     self.ues_power_index = np.zeros((self.n_ue), dtype=np.int64)
-    self.ues_power = np.zeros((self.n_ue), dtype=np.int64)
-    self.ues_gain = np.zeros((self.n_ue, self.N), dtype=np.int64)
-    self.ues_bss_path_loss = np.zeros((self.n_ue, self.N), dtype=np.int64)
+    self.ues_power = np.zeros((self.n_ue))
+    self.ues_gain = np.zeros((self.n_ue, self.N))
+    self.ues_bss_path_loss = np.zeros((self.n_ue, self.N))
 
-    if config.env.bs_topo == 'grid':
+    self.ues_i = np.arange(self.n_ue)
+    self.bss_i = np.arange(self.N)
+
+    if False:
+      pass
+    elif config.env.bs_topo == 'grid':
       topo_gen = self.topo_factory_grid
       ymul = 1
     elif config.env.bs_topo == 'hex':
@@ -78,7 +94,19 @@ class CellNetEnviron:
     self.ues_pos[:, 0] *= self.L * (self.bs_nx) * 2
     self.ues_pos[:, 1] *= self.L * (self.bs_ny) * 2 * ymul
 
-    self.update_dist()
+    self.update()
+
+    if False:
+      pass
+    elif config.cache.type == 'fifo':
+      cache_factory = FIFOCache
+    elif config.cache.type == 'lifo':
+      cache_factory = LIFOCache
+    else:
+      raise ValueError('invalid cache factory enum: {}'.format(config.cache.type))
+
+    self.bss_caches = [cache_factory(self.timer, config.cache.maxsize, config.cache.maxage) for _ in range(self.N)]
+
 
   def update_dist(self):
     self.bss_bss_dl *= 0
@@ -90,10 +118,11 @@ class CellNetEnviron:
     self.bss_bss_dl -= np.expand_dims(self.bss_pos, axis=1)
     self.ues_ues_dl -= np.expand_dims(self.ues_pos, axis=1)
     self.ues_bss_dl -= np.expand_dims(self.ues_pos, axis=1)
-    self.bss_bss_l[:, :] = np.sqrt(np.sum(np.square(self.bss_bss_dl), axis=2))
-    self.ues_ues_l[:, :] = np.sqrt(np.sum(np.square(self.ues_ues_dl), axis=2))
-    self.ues_bss_l[:, :] = np.sqrt(np.sum(np.square(self.ues_bss_dl), axis=2))
-    self.ues_gr[:] = self.ues_bss_l.argmin(axis=1)
+    np.sqrt(np.sum(np.square(self.bss_bss_dl), axis=2), out=self.bss_bss_l)
+    np.sqrt(np.sum(np.square(self.ues_ues_dl), axis=2), out=self.ues_ues_l)
+    np.sqrt(np.sum(np.square(self.ues_bss_dl), axis=2), out=self.ues_bss_l)
+    self.ues_bss_l.argmin(axis=1, out=self.ues_gr)
+    np.equal(np.repeat(np.expand_dims(self.ues_gr, axis=0), self.bss_i.shape[0], axis=0), np.expand_dims(self.bss_i, axis=1), out=self.bss_ues_grm)
 
   def update_pos(self):
     dt = self.timer.delta_time()

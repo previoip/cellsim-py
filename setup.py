@@ -21,6 +21,8 @@ if __name__ == '__main__':
   config = Config(config_filepath)
   config.load()
 
+  print('using dataset ', config.default.dataset)
+
   dataset_url = urllib.parse.urljoin(
     config.dataset_info.host,
     '{}/{}'.format(
@@ -54,6 +56,7 @@ if __name__ == '__main__':
   os.makedirs(extract_folder, exist_ok=True)
 
   if not os.path.exists(archive_filepath) or not os.path.isfile(archive_filepath):
+    print('downloading dataset archive:', config.dataset.archive_name)
     hash_h = hashlib.md5()
     sess = new_session()
     downloader.to_folder(sess, dataset_url, download_folder, callback=hash_h.update)
@@ -63,13 +66,14 @@ if __name__ == '__main__':
 
 
   if not os.path.exists(extract_filepath) or not os.path.isfile(extract_filepath):
+    print('extracting file from archive:', config.dataset.data_file)
     if archive_filepath.endswith('.zip'):
       handler = ZipFile
     elif archive_filepath.endswith('.tar.gz') or \
       archive_filepath.endswith('.tar'):
       handler = TarFile
     else:
-      raise FileNotFoundError('invalid extension given on downloaded file:', archive_filepath)
+      raise FileNotFoundError('invalid extension given on downloaded file: {}'.format(archive_filepath))
 
     with open(archive_filepath, 'rb') as fp:
       archive_handler = handler(fp)
@@ -78,7 +82,7 @@ if __name__ == '__main__':
           archive_handler.extract(f, extract_folder)
           break
       else:
-        raise FileNotFoundError('cannot retrieve file from archive:', config.dataset.data_file)
+        raise FileNotFoundError('cannot retrieve file from archive: {}'.format(config.dataset.data_file))
 
   delimiter = '\t' if config.dataset.delimiter == '\\t' else config.dataset.delimiter
   colnames = [getattr(config.dataset, 'colname_'+i) for i in config.dataset.colsequence.split('|')]
@@ -105,14 +109,19 @@ if __name__ == '__main__':
     df = df.merge(df_t, how='left').drop([colname], axis=1).rename(columns={'temp':colname})
 
   df = df.sort_values(by='ts').reset_index(drop=True)
+  df['ts'] -= df['ts'].min()
   df = df[['uid','iid','val','ts']]
 
   os.makedirs(config.dataset_settings.data_dir, exist_ok=True)
-  df.to_csv(os.path.join(config.dataset_settings.data_dir, config.dataset_settings.data_csv_requests), encoding='utf8', sep=';', index=False)
+  data_filepath = os.path.join(config.dataset_settings.data_dir, config.dataset_settings.data_csv_requests)
+  df.to_csv(data_filepath, encoding='utf8', sep=';', index=False)
+  print('saved processed file:', data_filepath)
 
   df_uid = df[['uid']].drop_duplicates().sort_values(by='uid')
   df_uid['inter'] = df_uid['uid'].apply(lambda i: df[df['uid'] == i]['iid'].to_list())
-  df_uid.to_csv(os.path.join(config.dataset_settings.data_dir, config.dataset_settings.data_csv_inter), encoding='utf8', sep=';', index=False)
+  data_filepath = os.path.join(config.dataset_settings.data_dir, config.dataset_settings.data_csv_inter)
+  df_uid.to_csv(data_filepath, encoding='utf8', sep=';', index=False)
+  print('saved processed file:', data_filepath)
 
   config.save()
 
