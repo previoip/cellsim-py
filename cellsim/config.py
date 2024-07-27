@@ -4,6 +4,8 @@ from collections import namedtuple
 from re import compile as re_compile
 from dataclasses import dataclass, asdict, fields
 
+DEFAULT_CONTENT_SIZE = 1_000_000
+
 regxp_hashinfo = re_compile(r'(?P<alg>\w+)\s*\((?P<f>.+)\)\s*\=\s*(?P<hash>\w+)\Z')
 
 @dataclass
@@ -78,7 +80,7 @@ class ConfigSectionSimDefault:
 @dataclass
 class ConfigSectionSimCache:
   type: str = 'fifo'
-  maxsize: float = 1000
+  maxsize: float = 1000 * DEFAULT_CONTENT_SIZE
   maxage: float = 1000
 
   @property
@@ -111,7 +113,7 @@ class ConfigSectionSimEnv:
   power_min: float = -10
   power_max: float = 20
   power_level: int = 10
-  content_size: float = 10e6
+  content_size: float = DEFAULT_CONTENT_SIZE
   bandwidth: float = 10e6
 
   @property

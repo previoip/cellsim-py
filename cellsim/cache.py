@@ -9,7 +9,9 @@ class BaseCache:
     self.maxsize = maxsize
     self.maxage = maxage
     self.cache = OrderedDict()
-    self.tempbuf = list()
+    # counters, 0:step 1:total
+    self.insert_counter = [0, 0]
+    self.popped_counter = [0, 0]
 
   def __contains__(self, key):
     return self.has(key)
@@ -36,7 +38,16 @@ class BaseCache:
 
   def clear(self):
     self.cache.clear()
-    self.tempbuf.clear()
+
+  def reset(self):
+    self.clear()
+    self.reset_counter()
+    self.insert_counter[1] = 0
+    self.popped_counter[1] = 0
+
+  def reset_counter(self):
+    self.insert_counter[0] = 0
+    self.popped_counter[0] = 0
 
   def has(self, key):
     return not self.cache.get(key, None) is None
@@ -56,6 +67,8 @@ class BaseCache:
         retval = 1
       else:
         self.cache[key] = self.t_cache_record(ttl, size, item)
+        self.insert_counter[0] += 1
+        self.insert_counter[1] += 1
       return retval
 
 
@@ -67,6 +80,8 @@ class FIFOCache(BaseCache):
       if rec.ttl != -1 and timestamp >= rec.ttl:
         popped.append(rec)
         self.delete(key)
+        self.popped_counter[0] += 1
+        self.popped_counter[1] += 1
     if self.is_full():
       sums = 0
       to_delete = list()
@@ -79,6 +94,8 @@ class FIFOCache(BaseCache):
         rec = self.cache[k]
         popped.append(rec)
         self.delete(k)
+        self.popped_counter[0] += 1
+        self.popped_counter[1] += 1
     return popped
 
 
@@ -90,6 +107,8 @@ class LIFOCache(BaseCache):
       if rec.ttl != -1 and timestamp >= rec.ttl:
         popped.append(rec)
         self.delete(key)
+        self.popped_counter[0] += 1
+        self.popped_counter[1] += 1
     if self.is_full():
       sums = 0
       to_delete = list()
@@ -102,4 +121,6 @@ class LIFOCache(BaseCache):
         rec = self.cache[k]
         popped.append(rec)
         self.delete(k)
+        self.popped_counter[0] += 1
+        self.popped_counter[1] += 1
     return popped

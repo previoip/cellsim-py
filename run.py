@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from cellsim.config import Config, fmt
-from cellsim.environ import CellNetEnviron
+from cellsim.environ import CellNetEnviron, RequestWrapper
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -42,11 +42,9 @@ if __name__ == '__main__':
   init_seed(config.default.seed)
 
   df_request = pd.read_csv(os.path.join(config.dataset_settings.data_dir, config.dataset_settings.data_csv_requests), sep=';', low_memory=True)
-  uids = df_request['uid'].drop_duplicates().sort_values()
-  iids = df_request['iid'].drop_duplicates().sort_values()
-
-  env = CellNetEnviron(len(uids), config)
-  env.update()
+  request_w = RequestWrapper(df_request, config)
+  env = CellNetEnviron(request_w, config)
+  env.reset()
 
   fig, ax = plt.subplots()
   env.plot_ax(ax)
