@@ -11,12 +11,13 @@ ATOL = 1e-8
 class RequestWrapper:
   def __init__(self, df_request, config: Config, c_uid='uid', c_iid='iid', c_ts='ts', c_inter='rating'):
     self.df = df_request
-    self.colname_uid = c_uid
-    self.colname_iid = c_iid
-    self.colname_ts = c_ts
-    self.colname_inter = c_inter
+    self.c_uid = c_uid
+    self.c_iid = c_iid
+    self.c_ts = c_ts
+    self.c_inter = c_inter
     self.uids = df_request[c_uid].drop_duplicates().sort_values().to_numpy()
     self.iids = df_request[c_iid].drop_duplicates().sort_values().to_numpy()
+    self.tss = df_request[c_ts].drop_duplicates().sort_values().to_numpy()
     self.n_batch = config.default.request_per_step
     self.n_total = len(self.df)
     self.counter = 0
@@ -212,6 +213,11 @@ class CellNetEnviron:
     print('done')
     print()
 
+  def query_interfering_ues(self, ts):
+    dfv = self.request_w.df[['ts', 'uid']]
+    return dfv[dfv['ts'] == ts]['uid'].drop_duplicates().to_numpy()
+
+
   def update_dist(self):
     if self._do_skip_update():
       return
@@ -266,15 +272,20 @@ class CellNetEnviron:
     # prepare request batch
     batch = self.request_w.get_next_batch()
     for uid, iid, val, ts in batch.itertuples(index=False):
+      # update sim
       self.timer.update(ts)
       self.update()
+      # query bs index
       bsi = self.a_ues_gr[uid]
+      # increment request counter on each bs and ue
       self.a_ues_request_counter[:, uid] += 1
       self.a_bss_request_counter[:, bsi] += 1
+      # query cache instance
       cache = self.l_bss_caches[bsi]
-      # tbd: recsys goes here
+      # record cache hit
       if cache.has(iid):
         self.a_bss_cache_hit_counter[:, bsi] += 1
+      # tbd: recsys goes here
       cache.add(iid, iid, self.a_content_size[iid], None)
     # run eviction policy routine
     for cache in self.l_bss_caches:
