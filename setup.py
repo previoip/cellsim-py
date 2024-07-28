@@ -3,9 +3,10 @@ import os
 import urllib.parse
 import pandas as pd
 import hashlib
+import matplotlib.pyplot as plt
 from zipfile import ZipFile
 from tarfile import TarFile
-from cellsim.config import Config
+from cellsim.config import Config, fmt
 from cellsim.util.rutil.dl import downloader, new_session
 
 
@@ -122,6 +123,32 @@ if __name__ == '__main__':
   data_filepath = os.path.join(config.dataset_settings.data_dir, config.dataset_settings.data_csv_inter)
   df_uid.to_csv(data_filepath, encoding='utf8', sep=';', index=False)
   print('saved processed file:', data_filepath)
+
+
+  print('generating dataset profile:', config.default.dataset)
+  os.makedirs(config.default.results_subdir, exist_ok=True)
+  n_bins = len(df) // config.default.request_per_step // 2
+
+  fig, ax = plt.subplots(tight_layout=True)
+  ax.hist(df['ts'], bins=n_bins)
+  ax.set_title('request freq')
+  ax.set_xlabel('time')
+  ax.set_ylabel('iid')
+  fig.savefig('{}/ts_freq.png'.format(config.default.results_subdir))
+
+  fig, (ax1, ax2) = plt.subplots(1, 2, tight_layout=True)
+  ax1.hist2d(df['ts'], df['iid'], bins=n_bins)
+  ax1.set_title('iid freq')
+  ax1.set_xlabel('time')
+  ax1.set_ylabel('iid')
+
+  ax2.hist2d(df['uid'], df['iid'], bins=n_bins)
+  ax2.set_title('uid iid inter')
+  ax2.set_xlabel('uid')
+  ax2.sharey(ax1)
+
+  fig.savefig('{}/request_inter.png'.format(config.default.results_subdir))
+
 
   config.save()
 

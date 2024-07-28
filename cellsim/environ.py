@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import tqdm
 from cellsim.core.timer import TimestepTimer
 from cellsim.cache import FIFOCache, LIFOCache
 from cellsim.config import Config
@@ -61,9 +62,9 @@ class CellNetEnviron:
     ax, ay = ax.flatten(), ay.flatten()
     return np.column_stack((ax, ay, np.zeros(ax.shape)))
 
-  def __init__(self, request_w: RequestWrapper, config: Config):
+  def __init__(self, request_df: RequestWrapper, config: Config):
     # anything isn't prefrixed is either scalar or instances
-    self.request_w = request_w
+    self.request_w = RequestWrapper(request_df, config)
     self.n_ue = len(self.request_w.uids)
     self.n_ii = len(self.request_w.iids)
     self.bs_nx = config.env.bs_nx
@@ -73,14 +74,17 @@ class CellNetEnviron:
     self.a = config.env.a
     self.sigma2 = config.env.sigma2
     self.rayleigh_scale = 1
+    self.f_static = config.env.assume_static == 'true'
     self.timer = TimestepTimer()
     self.a_power_set = np.linspace(config.env.power_min, config.env.power_max, config.env.power_level)
     self.a_content_size = np.ones((self.n_ii)) * config.env.content_size
+    self._do_update_dist = False
 
     # vectors
     #   *_pos: cart coord [x, y, z]
     #   *_hea: heading (antenna) [elev, azim]
     #   *_vel: cart velocity [u, v, w]
+    print('allocating vectors')
     self.v_ues_pos = np.zeros((self.n_ue, 3))
     self.v_ues_hea = np.zeros((self.n_ue, 2))
     self.v_ues_vel = np.zeros((self.n_ue, 3))
@@ -94,6 +98,7 @@ class CellNetEnviron:
     #   *_gr: group indices
     #   *_grm: group mask
     #   *_adj: adjacent mask
+    print('allocating arrays/matrixes')
     self.m_bss2bss_dpos = np.zeros((self.N, self.N, 3))
     self.m_ues2ues_dpos = np.zeros((self.n_ue, self.n_ue, 3))
     self.m_ues2bss_dpos = np.zeros((self.n_ue, self.N, 3))
@@ -124,8 +129,10 @@ class CellNetEnviron:
     self.a_bss_cache_insert_counter = np.zeros((2, self.N), dtype=np.int64)
     self.a_bss_cache_popped_counter = np.zeros((2, self.N), dtype=np.int64)
 
-
     # begin setup
+    print('setting up environment')
+
+    print('configuring bs coordinates:', config.env.bs_topo)
     if False:
       pass
     elif config.env.bs_topo == 'grid':
@@ -135,19 +142,42 @@ class CellNetEnviron:
       topo_gen = self.topo_factory_hexlattice
       ymul = SIN60
     else:
-      ValueError('invalid value:', config.env.bs_topo)
+      raise ValueError('invalid topo value:', config.env.bs_topo)
 
     self.v_bss_pos[:, :] = topo_gen(self.bs_nx, self.bs_ny)
     self.v_bss_pos[:, 0] *= self.L * (self.bs_nx - 1) * 2
     self.v_bss_pos[:, 1] *= self.L * (self.bs_ny - 1) * 2
 
-    self.v_ues_pos[:, :2] = np.random.uniform(-.5, .5, size=(self.n_ue, 2))
-    self.v_ues_pos[:, :2] += np.random.uniform(-.05, .05, size=(self.n_ue, 2))
-    self.v_ues_pos[:, 0] *= self.L * (self.bs_nx) * 2
-    self.v_ues_pos[:, 1] *= self.L * (self.bs_ny) * 2 * ymul
+    print('configuring ue coordinates:', config.env.ues_distribution)
+    if False:
+      pass
+    elif config.env.ues_distribution == 'uniform':
+      self.v_ues_pos[:, :2] = np.random.uniform(-.5, .5, size=(self.n_ue, 2))
+      self.v_ues_pos[:, :2] += np.random.uniform(-.05, .05, size=(self.n_ue, 2))
+      self.v_ues_pos[:, 0] *= self.L * (self.bs_nx) * 2
+      self.v_ues_pos[:, 1] *= self.L * (self.bs_ny) * 2 * ymul
+    elif config.env.ues_distribution == 'centers':
+      indices = self.a_ues_indices.copy()
+      np.random.shuffle(indices)
+      indices = np.array_split(indices, self.N)
+      for i in range(self.N):
+        ues_indices = indices[i]
+        bs_pos = self.v_bss_pos[i]
+        ue_pos_t = np.random.uniform(.0, 1.0, size=ues_indices.shape) * 2 * np.pi
+        ue_pos_r = np.random.uniform(.0, 1.0, size=ues_indices.shape)
+        ue_pos_r = np.sqrt(ue_pos_r) * self.L * (np.pi/3)
+        ue_pos_x = ue_pos_r * np.cos(ue_pos_t)
+        ue_pos_y = ue_pos_r * np.sin(ue_pos_t)
+        self.v_ues_pos[ues_indices] *= 0
+        self.v_ues_pos[ues_indices] += bs_pos
+        self.v_ues_pos[ues_indices, 0] += ue_pos_x
+        self.v_ues_pos[ues_indices, 1] += ue_pos_y
+    else:
+      raise ValueError('invalid ue distribution value:', config.env.ues_distribution)
 
     self.m_ues2bss_h += np.random.rayleigh(self.rayleigh_scale, size=(self.n_ue, self.N))
 
+    print('instantiating cache instances')
     if False:
       pass
     elif config.cache.type == 'fifo':
@@ -164,8 +194,10 @@ class CellNetEnviron:
       cache.popped_counter = self.a_bss_cache_popped_counter[:, bsi]
       self.l_bss_caches.append(cache)
 
+    print('calculating station assignments')
     self.update()
 
+    print('saving initial states')
     self._attrs_t0_cp = {
       'v_ues_pos': self.v_ues_pos.copy(),
       'v_ues_hea': self.v_ues_hea.copy(),
@@ -177,7 +209,13 @@ class CellNetEnviron:
       'm_bss2iid_cands': self.m_bss2iid_cands.copy(),
     }
 
+    print('done')
+    print()
+
   def update_dist(self):
+    if self._do_skip_update():
+      return
+    self._do_update_dist = False
     self.m_bss2bss_dpos *= 0
     self.m_ues2ues_dpos *= 0
     self.m_ues2bss_dpos *= 0
@@ -195,7 +233,10 @@ class CellNetEnviron:
     self.m_bss2bss_adj = self.m_bss2bss_dist <= (self.L * 2 + ATOL)
 
   def update_pos(self):
+    if self._do_skip_update():
+      return
     dt = self.timer.delta_time()
+    self._do_update_dist |= np.isclose(dt, 0)
     self.v_bss_pos += self.v_bss_vel * dt
     self.v_ues_pos += self.v_ues_vel * dt
 
@@ -209,20 +250,31 @@ class CellNetEnviron:
     self.update_dist()
     self.update_sim_intrinsics()
 
-  def step(self):
+  def _do_skip_update(self):
+    check = self.counter > 0
+    check &= self.f_static
+    check &= not self._do_update_dist
+    return check
+
+  def step(self): 
     # clear per-step counters
     self.a_ues_request_counter[0, :] *= 0
     self.a_bss_request_counter[0, :] *= 0
+    self.a_bss_cache_hit_counter[0, :] *= 0
     for cache in self.l_bss_caches:
       cache.reset_counter()
     # prepare request batch
     batch = self.request_w.get_next_batch()
     for uid, iid, val, ts in batch.itertuples(index=False):
+      self.timer.update(ts)
+      self.update()
       bsi = self.a_ues_gr[uid]
       self.a_ues_request_counter[:, uid] += 1
       self.a_bss_request_counter[:, bsi] += 1
       cache = self.l_bss_caches[bsi]
       # tbd: recsys goes here
+      if cache.has(iid):
+        self.a_bss_cache_hit_counter[:, bsi] += 1
       cache.add(iid, iid, self.a_content_size[iid], None)
     # run eviction policy routine
     for cache in self.l_bss_caches:

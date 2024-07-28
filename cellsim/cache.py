@@ -76,7 +76,9 @@ class FIFOCache(BaseCache):
   def evict(self):
     timestamp = self.timer.now()
     popped = list()
-    for key, rec in self.cache.items():
+    keys = list(self.cache.keys())
+    for key in keys:
+      rec = self.cache[key]
       if rec.ttl != -1 and timestamp >= rec.ttl:
         popped.append(rec)
         self.delete(key)
@@ -103,7 +105,9 @@ class LIFOCache(BaseCache):
   def evict(self):
     timestamp = self.timer.now()
     popped = list()
-    for key, rec in self.cache.items():
+    keys = list(self.cache.keys())
+    for key in keys:
+      rec = self.cache[key]
       if rec.ttl != -1 and timestamp >= rec.ttl:
         popped.append(rec)
         self.delete(key)
