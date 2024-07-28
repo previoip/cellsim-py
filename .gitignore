@@ -127,6 +127,10 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+# typos
+.vevn
+vevn/
+vevn.bak/
 
 # Spyder project settings
 .spyderproject

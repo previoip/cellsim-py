@@ -142,7 +142,7 @@ class CellNetEnviron:
       topo_gen = self.topo_factory_hexlattice
       ymul = SIN60
     else:
-      raise ValueError('invalid topo value:', config.env.bs_topo)
+      raise ValueError('invalid topo enum: {}'.format(config.env.bs_topo))
 
     self.v_bss_pos[:, :] = topo_gen(self.bs_nx, self.bs_ny)
     self.v_bss_pos[:, 0] *= self.L * (self.bs_nx - 1) * 2
@@ -173,7 +173,7 @@ class CellNetEnviron:
         self.v_ues_pos[ues_indices, 0] += ue_pos_x
         self.v_ues_pos[ues_indices, 1] += ue_pos_y
     else:
-      raise ValueError('invalid ue distribution value:', config.env.ues_distribution)
+      raise ValueError('invalid ue distribution enum: {}'.format(config.env.ues_distribution))
 
     self.m_ues2bss_h += np.random.rayleigh(self.rayleigh_scale, size=(self.n_ue, self.N))
 
