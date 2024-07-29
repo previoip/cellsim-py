@@ -24,12 +24,16 @@ class RequestWrapper:
     self.stop_flag = False
 
   @property
+  def n_steps(self):
+    return self.n_total // self.n_batch
+
+  @property
   def cursor(self):
     return self.counter * self.n_batch
 
   def _it_cursor(self):
     self.counter += 1
-    if self.cursor > self.n_total:
+    if self.cursor >= self.n_total:
       self.stop_flag = True
 
   def get_next_batch(self):
@@ -116,6 +120,7 @@ class CellNetEnviron:
     self.m_ues2bss_gain = np.zeros((self.n_ue, self.N))
     self.m_ues2bss_path_loss = np.zeros((self.n_ue, self.N))
     self.a_ues_noise = np.repeat(self.sigma2, repeats=(self.n_ue))
+    self.m_ues2bss_sinr = np.zeros((self.n_ue, self.N))
 
     # others
     self.a_ues_indices = np.arange(self.n_ue, dtype=np.int32)
@@ -123,12 +128,13 @@ class CellNetEnviron:
     self.m_ues2bss_h = np.zeros((self.n_ue, self.N))
     self.m_bss2iid_cands = np.zeros((self.N, self.n_ii))
 
-    # counters, 0:step 1:total
-    self.a_bss_request_counter = np.zeros((2, self.N), dtype=np.int64)
-    self.a_ues_request_counter = np.zeros((2, self.n_ue), dtype=np.int64)
-    self.a_bss_cache_hit_counter = np.zeros((2, self.N), dtype=np.int64)
-    self.a_bss_cache_insert_counter = np.zeros((2, self.N), dtype=np.int64)
-    self.a_bss_cache_popped_counter = np.zeros((2, self.N), dtype=np.int64)
+    # counters summers, 0:step 1:total
+    self.m_bss2ues_counter_request = np.zeros((self.N, self.n_ue, 2), dtype=np.int64)
+    self.m_bss2ues_counter_cache_hit = np.zeros((self.N, self.n_ue, 2), dtype=np.int64)
+    self.m_bss2ues_sums_request = np.zeros((self.N, self.n_ue, 2))
+    self.m_bss2ues_sums_cache_read = np.zeros((self.N, self.n_ue, 2))
+    self.m_bss2ues_sums_cache_write = np.zeros((self.N, self.n_ue, 2))
+    self.m_bss2ues_sums_cache_removed = np.zeros((self.N, self.n_ue, 2))
 
     # begin setup
     print('setting up environment')
@@ -191,8 +197,6 @@ class CellNetEnviron:
     self.l_bss_caches = list()
     for bsi in range(self.N):
       cache = cache_factory(self.timer, config.cache.maxsize, config.cache.maxage)
-      cache.insert_counter = self.a_bss_cache_insert_counter[:, bsi]
-      cache.popped_counter = self.a_bss_cache_popped_counter[:, bsi]
       self.l_bss_caches.append(cache)
 
     print('calculating station assignments')
@@ -216,7 +220,6 @@ class CellNetEnviron:
   def query_interfering_ues(self, ts):
     dfv = self.request_w.df[['ts', 'uid']]
     return dfv[dfv['ts'] == ts]['uid'].drop_duplicates().to_numpy()
-
 
   def update_dist(self):
     if self._do_skip_update():
@@ -250,6 +253,15 @@ class CellNetEnviron:
     self.m_ues2bss_path_loss = self.a * 10 * np.log10(self.m_ues2bss_dist)
     self.a_ues_power = self.a_power_set[self.a_ues_power_index]
     self.m_ues2bss_gain = self.m_ues2bss_path_loss / self.m_ues2bss_h
+    t_m_ues2bss_sinr = self.m_ues2bss_gain.T * self.a_ues_power
+    t_m_ues2bss_sinr = (t_m_ues2bss_sinr / self.a_ues_noise).T
+    assert t_m_ues2bss_sinr.shape == self.m_ues2bss_sinr.shape, 'invalid shape broadcast'
+    self.m_ues2bss_sinr = t_m_ues2bss_sinr
+
+  def eval_sinr(self, ts):
+    interf_ues = self.query_interfering_ues(ts)
+    interf = self.m_ues2bss_sinr[inter_ues]
+    return self.m_ues2bss_sinr
 
   def update(self):
     self.update_pos()
@@ -257,18 +269,19 @@ class CellNetEnviron:
     self.update_sim_intrinsics()
 
   def _do_skip_update(self):
-    check = self.counter > 0
+    check = self.step_counter > 0
     check &= self.f_static
     check &= not self._do_update_dist
     return check
 
   def step(self): 
     # clear per-step counters
-    self.a_ues_request_counter[0, :] *= 0
-    self.a_bss_request_counter[0, :] *= 0
-    self.a_bss_cache_hit_counter[0, :] *= 0
-    for cache in self.l_bss_caches:
-      cache.reset_counter()
+    self.m_bss2ues_counter_request[:, :, 0] *= 0
+    self.m_bss2ues_counter_cache_hit[:, :, 0] *= 0
+    self.m_bss2ues_sums_request[:, :, 0] *= 0
+    self.m_bss2ues_sums_cache_read[:, :, 0] *= 0
+    self.m_bss2ues_sums_cache_write[:, :, 0] *= 0
+    self.m_bss2ues_sums_cache_removed[:, :, 0] *= 0
     # prepare request batch
     batch = self.request_w.get_next_batch()
     for uid, iid, val, ts in batch.itertuples(index=False):
@@ -278,18 +291,24 @@ class CellNetEnviron:
       # query bs index
       bsi = self.a_ues_gr[uid]
       # increment request counter on each bs and ue
-      self.a_ues_request_counter[:, uid] += 1
-      self.a_bss_request_counter[:, bsi] += 1
+      self.m_bss2ues_counter_request[bsi, uid] += 1
+      self.m_bss2ues_sums_request[bsi, uid] += self.a_content_size[iid]
       # query cache instance
       cache = self.l_bss_caches[bsi]
       # record cache hit
       if cache.has(iid):
-        self.a_bss_cache_hit_counter[:, bsi] += 1
+        self.m_bss2ues_counter_cache_hit[bsi, uid] += 1
       # tbd: recsys goes here
-      cache.add(iid, iid, self.a_content_size[iid], None)
-    # run eviction policy routine
-    for cache in self.l_bss_caches:
-      cache.evict()
+      modification, modification_amount = cache.add(iid, iid, self.a_content_size[iid], None)
+      if modification == 'read':
+        self.m_bss2ues_sums_cache_read[bsi, uid] += modification_amount
+      elif modification == 'write':
+        self.m_bss2ues_sums_cache_write[bsi, uid] += modification_amount
+      else:
+        print('warning unknown value: ', modification)
+      # run eviction policy routine
+      deletion_amount = cache.evict()
+      self.m_bss2ues_sums_cache_removed[bsi, uid] += deletion_amount
 
   def reset(self):
     self.request_w.reset()
@@ -299,17 +318,26 @@ class CellNetEnviron:
       i_attr = getattr(self, attr).view()
       i_attr *= 0
       i_attr += cp
+    self.m_bss2ues_counter_request *= 0
+    self.m_bss2ues_counter_cache_hit *= 0
+    self.m_bss2ues_sums_request *= 0
+    self.m_bss2ues_sums_cache_read *= 0
+    self.m_bss2ues_sums_cache_write *= 0
+    self.m_bss2ues_sums_cache_removed *= 0
     self.update()
-    self.a_bss_request_counter *= 0
-    self.a_ues_request_counter *= 0
+
 
   @property
-  def counter(self):
+  def step_counter(self):
     return self.request_w.counter
 
   @property
   def stop_flag(self):
     return self.request_w.stop_flag
+
+  @property
+  def n_steps(self):
+    return self.request_w.n_steps
 
   @property
   def a_ues_power_lin(self):
