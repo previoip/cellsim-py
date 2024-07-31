@@ -115,6 +115,7 @@ class CellNetEnviron:
     self.m_bss2bss_adj = np.zeros((self.N, self.N))
 
     # sim intrinsics
+    self.a_bss_freq_alloc = np.zeros((self.N))
     self.a_ues_power_index = np.zeros((self.n_ue), dtype=np.int32)
     self.a_ues_power = np.zeros((self.n_ue))
     self.m_ues2bss_gain = np.zeros((self.n_ue, self.N))
@@ -217,10 +218,6 @@ class CellNetEnviron:
     print('done')
     print()
 
-  def query_interfering_ues(self, ts):
-    dfv = self.request_w.df[['ts', 'uid']]
-    return dfv[dfv['ts'] == ts]['uid'].drop_duplicates().to_numpy()
-
   def update_dist(self):
     if self._do_skip_update():
       return
@@ -258,10 +255,14 @@ class CellNetEnviron:
     assert t_m_ues2bss_sinr.shape == self.m_ues2bss_sinr.shape, 'invalid shape broadcast'
     self.m_ues2bss_sinr = t_m_ues2bss_sinr
 
-  def eval_sinr(self, ts):
+  def query_interfering_ues(self, ts):
+    dfv = self.request_w.df[['ts', 'uid']]
+    return dfv[dfv['ts'] == ts]['uid'].drop_duplicates().to_numpy()
+
+  def query_interferer(self, ts, uid=-1):
     interf_ues = self.query_interfering_ues(ts)
-    interf = self.m_ues2bss_sinr[inter_ues]
-    return self.m_ues2bss_sinr
+    interf_ues = interf_ues[interf_ues!=uid]
+    return self.m_ues2bss_sinr[interf_ues, self.a_ues_gr[interf_ues]]
 
   def update(self):
     self.update_pos()
@@ -325,7 +326,6 @@ class CellNetEnviron:
     self.m_bss2ues_sums_cache_write *= 0
     self.m_bss2ues_sums_cache_removed *= 0
     self.update()
-
 
   @property
   def step_counter(self):
